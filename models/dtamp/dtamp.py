@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.nn.functional import binary_cross_entropy_with_logits as bce_loss
 
 from networks import Actor, Critics, Decoder
-from models.diffuser import LatentDiffusion, TemporalUnet
+from models.diffuser import LatentDiffusion, LatentFlowMatching, TemporalUnet
 
 from copy import deepcopy
 
@@ -26,7 +26,9 @@ class DTAMP(nn.Module):
             diffuser_timesteps,
             returns_condition,
             condition_guidance_w,
-            hidden_size
+            hidden_size,
+            model_type='diffusion', # 'diffusion' or 'flowmatching'
+            sample_timesteps=None
     ):
         super().__init__()
         self.deterministic_enc = (kl_coeff == 0)
@@ -36,15 +38,31 @@ class DTAMP(nn.Module):
         self.critic = Critics(
             state_dim, act_dim, goal_dim // 2, n_critics, visual_perception, hidden_size, self.deterministic_enc
         )
-        self.diffuser = LatentDiffusion(
-            model=TemporalUnet(horizon, goal_dim, returns_condition=returns_condition),
-            horizon=horizon,
-            latent_dim=goal_dim,
-            n_timesteps=diffuser_timesteps,
-            predict_epsilon=predict_epsilon,
-            returns_condition=returns_condition,
-            condition_guidance_w=condition_guidance_w
-        )
+        if sample_timesteps is None:
+            sample_timesteps = diffuser_timesteps
+        
+        if model_type == 'diffusion':
+            self.diffuser = LatentDiffusion(
+                model=TemporalUnet(horizon, goal_dim, returns_condition=returns_condition),
+                horizon=horizon,
+                latent_dim=goal_dim,
+                n_timesteps=diffuser_timesteps,
+                n_sample_timesteps=sample_timesteps,
+                predict_epsilon=predict_epsilon,
+                returns_condition=returns_condition,
+                condition_guidance_w=condition_guidance_w
+            )
+        elif model_type == 'flowmatching':
+            self.diffuser = LatentFlowMatching(
+                model=TemporalUnet(horizon, goal_dim, returns_condition=returns_condition),
+                horizon=horizon,
+                latent_dim=goal_dim,
+                n_timesteps=diffuser_timesteps,
+                n_sample_timesteps=sample_timesteps,
+                predict_epsilon=predict_epsilon,
+                returns_condition=returns_condition,
+                condition_guidance_w=condition_guidance_w
+            )   
         if visual_perception:
             self.decoder = Decoder(goal_dim)
 
@@ -168,7 +186,7 @@ class DTAMP(nn.Module):
         distance = (g_obs - g).pow(2).sum(-1)
         reached_idx = torch.where(distance[:-1] < threshold)[0]
         if len(reached_idx) > 0:
-            g = g[reached_idx[-1]:]
+            g = g[reached_idx[-1]:] #TODO ADD REPLANNING HERE
 
         act = self.actor(obs, g[:1, :self.goal_dim // 2])
         return act.squeeze().cpu().detach().numpy(), g

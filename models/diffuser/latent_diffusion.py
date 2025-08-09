@@ -25,7 +25,7 @@ def apply_conditioning(x, cond):
 
 
 class LatentDiffusion(nn.Module):
-    def __init__(self, model, horizon, latent_dim, n_timesteps=1000,
+    def __init__(self, model, horizon, latent_dim, n_timesteps=1000, n_sample_timesteps=1,
         loss_type='l2', clip_denoised=False, predict_epsilon=True, returns_condition=False, condition_guidance_w=0.1):
         super().__init__()
         self.horizon = horizon
@@ -40,6 +40,7 @@ class LatentDiffusion(nn.Module):
         alphas_cumprod_prev = torch.cat([torch.ones(1), alphas_cumprod[:-1]])
 
         self.n_timesteps = int(n_timesteps)
+        self.n_sample_timesteps = int(n_sample_timesteps)
         self.clip_denoised = clip_denoised
         self.predict_epsilon = predict_epsilon
 
@@ -66,6 +67,53 @@ class LatentDiffusion(nn.Module):
             betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         self.register_buffer('posterior_mean_coef2',
             (1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod))
+        
+        sample_alphas = alphas.view(self.n_sample_timesteps, -1).prod(dim=1)
+        sample_betas = 1.0 - sample_alphas
+
+        sample_alphas_cumprod = torch.cumprod(sample_alphas, axis=0)
+        sample_alphas_cumprod_prev = torch.cat(
+            [torch.ones(1), sample_alphas_cumprod[:-1]]
+        )
+
+        self.register_buffer('sample_betas', sample_betas)
+        self.register_buffer('sample_alphas_cumprod', sample_alphas_cumprod)
+        self.register_buffer('sample_alphas_cumprod_prev', sample_alphas_cumprod_prev)
+
+        self.register_buffer('sample_sqrt_alphas_cumprod', torch.sqrt(sample_alphas_cumprod))
+        self.register_buffer('sample_sqrt_one_minus_alphas_cumprod', torch.sqrt(
+            1.0 - sample_alphas_cumprod
+        ))
+        self.register_buffer('sample_log_one_minus_alphas_cumprod', torch.log(
+            1.0 - sample_alphas_cumprod
+        ))
+        self.register_buffer('sample_sqrt_recip_alphas_cumprod', torch.sqrt(1.0 / sample_alphas_cumprod))
+        self.register_buffer('sample_sqrt_recipm1_alphas_cumprod', torch.sqrt(
+            1.0 / sample_alphas_cumprod - 1
+        ))
+
+        sample_posterior_variance = (
+            sample_betas
+            * (1.0 - sample_alphas_cumprod_prev)
+            / (1.0 - sample_alphas_cumprod)
+        )
+        self.register_buffer('sample_posterior_variance', sample_posterior_variance)
+        self.register_buffer(
+            'sample_posterior_log_variance_clipped',
+            torch.log(torch.clamp(sample_posterior_variance, min=1e-20))
+        )
+        self.register_buffer(
+            'sample_posterior_mean_coef1',
+            sample_betas
+            * np.sqrt(sample_alphas_cumprod_prev)
+            / (1.0 - sample_alphas_cumprod)
+        )
+        self.register_buffer(
+            'sample_posterior_mean_coef2',
+            (1.0 - sample_alphas_cumprod_prev)
+            * np.sqrt(sample_alphas)
+            / (1.0 - sample_alphas_cumprod)
+        )
 
         ## get loss coefficients and initialize objective
         if loss_type == 'l1':
@@ -82,29 +130,29 @@ class LatentDiffusion(nn.Module):
         '''
         if self.predict_epsilon:
             return (
-                extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
-                extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+                extract(self.sample_sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
+                extract(self.sample_sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
             )
         else:
             return noise
 
     def q_posterior(self, x_start, x_t, t):
         posterior_mean = (
-            extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
-            extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+            extract(self.sample_posterior_mean_coef1, t, x_t.shape) * x_start +
+            extract(self.sample_posterior_mean_coef2, t, x_t.shape) * x_t
         )
-        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
-        posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
+        posterior_variance = extract(self.sample_posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = extract(self.sample_posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(self, x, cond, t, returns=None):
         if self.returns_condition:
             # epsilon could be epsilon or x0 itself
-            epsilon_cond = self.model(x, cond, t, returns, use_dropout=False)
-            epsilon_uncond = self.model(x, cond, t, returns, force_dropout=True)
+            epsilon_cond = self.model(x, cond, ((t + 1) * (self.n_timesteps // self.n_sample_timesteps) - 1), returns, use_dropout=False)
+            epsilon_uncond = self.model(x, cond, ((t + 1) * (self.n_timesteps // self.n_sample_timesteps) - 1), returns, force_dropout=True)
             epsilon = epsilon_uncond + self.condition_guidance_w*(epsilon_cond - epsilon_uncond)
         else:
-            epsilon = self.model(x, cond, t)
+            epsilon = self.model(x, cond, ((t + 1) * (self.n_timesteps // self.n_sample_timesteps) - 1))
 
         t = t.detach().to(torch.int64)
         x_recon = self.predict_start_from_noise(x, t=t, noise=epsilon)
@@ -137,7 +185,7 @@ class LatentDiffusion(nn.Module):
 
         if return_diffusion: diffusion = [x]
 
-        for i in reversed(range(0, self.n_timesteps)):
+        for i in reversed(range(0, self.n_sample_timesteps)):
             timesteps = torch.full((batch_size,), i, device=device, dtype=torch.long)
             x = self.p_sample(x, cond, timesteps, returns)
             x = apply_conditioning(x, cond)
