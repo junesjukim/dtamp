@@ -51,7 +51,16 @@ class LatentFlowMatching(nn.Module):
         # The naming is kept for consistency, but for flow matching, we only compute the mean (the next state).
         # NOTE: The time input to the model is scaled similarly to the original LatentDiffusion for consistency.
         
-        model_output = self.model(x, cond, t * (self.n_timesteps // self.n_sample_timesteps), returns)
+        t_model = t * (self.n_timesteps // self.n_sample_timesteps)
+
+        if self.returns_condition:
+            # Similar to classifier-free guidance in diffusion models
+            out_cond = self.model(x, cond, t_model, returns, use_dropout=False)
+            out_uncond = self.model(x, cond, t_model, returns, force_dropout=True)
+            model_output = out_uncond + self.condition_guidance_w * (out_cond - out_uncond)
+        else:
+            model_output = self.model(x, cond, t_model, returns)
+
         model_output = apply_conditioning(model_output, cond)
         
         if self.prediction_type == "x_start":
