@@ -51,6 +51,7 @@ class LatentFlowMatching(nn.Module):
         # The naming is kept for consistency, but for flow matching, we only compute the mean (the next state).
         # NOTE: The time input to the model is scaled similarly to the original LatentDiffusion for consistency.
         
+        assert self.n_timesteps % self.n_sample_timesteps == 0, f"n_timesteps({self.n_timesteps}) must be divisible by n_sample_timesteps({self.n_sample_timesteps})"
         t_model = t * (self.n_timesteps // self.n_sample_timesteps)
 
         if self.returns_condition:
