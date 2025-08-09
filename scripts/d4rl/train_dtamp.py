@@ -23,12 +23,9 @@ import d4rl
 
 def train():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--env', type=str, default='antmaze-medium-play-v2')
     parser.add_argument('--epochs_per_save', type=int, default=50)
     args = parser.parse_args()
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = '%d' % args.gpu
 
     exp_name = f'dtamp_{args.env}_diffusion_step_20'
     checkpoint_dir = os.path.join('checkpoints', exp_name)
