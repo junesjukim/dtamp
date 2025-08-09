@@ -1,0 +1,24 @@
+conda activate dtamp
+export PYTHONPATH=$PYTHONPATH:/home/junseolee/intern/DTAMP
+
+
+
+import os
+os.environ["WANDB_API_KEY"] = "b74af3d766f03aebd400095eec299dd945771d2b"
+
+pip install "dm_control<=1.0.20" "mujoco<=3.1.6"
+
+OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=2 nohup python scripts/d4rl/train_dtamp.py --env kitchen-partial-v0 > "diffstep20partial.log" 2>&1 &
+OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=3 nohup python scripts/d4rl/train_dtamp.py --env kitchen-mixed-v0 > "diffstep20mixed" 2>&1 &
+
+
+evaluation test in 300k step (30%)
+nohup OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=1 python scripts/d4rl/evaluate_dtamp.py --env kitchen-mixed-v0 --checkpoint_dir /home/junseolee/intern/DTAMP/checkpoints/dtamp_kitchen-mixed-v0
+
+OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=1 python scripts/d4rl/evaluate_dtamp.py --env kitchen-partial-v0 --checkpoint_dir /home/junseolee/intern/DTAMP/checkpoints/dtamp_kitchen-partial-v0_diffusion_step_20
+
+OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=2 python scripts/d4rl/evaluate_dtamp.py --env kitchen-mixed-v0 --checkpoint_dir /home/junseolee/intern/DTAMP/checkpoints/dtamp_kitchen-mixed-v0_diffusion_step_20
+
+OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=1 python scripts/d4rl/evaluate_dtamp.py --env kitchen-partial-v0 --checkpoint_dir /home/junseolee/intern/DTAMP/checkpoints/dtamp_kitchen-partial-v0_flowmatching
+
+OMP_NUM_THREADS=12 CUDA_VISIBLE_DEVICES=2 python scripts/d4rl/evaluate_dtamp.py --env kitchen-mixed-v0 --checkpoint_dir /home/junseolee/intern/DTAMP/checkpoints/dtamp_kitchen-mixed-v0_flowmatching
