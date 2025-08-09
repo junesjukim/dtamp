@@ -79,7 +79,7 @@ class LatentFlowMatching(nn.Module):
 
     @torch.no_grad()
     def p_sample_loop(self, shape, cond, returns=None, return_diffusion=False):
-        device = self.betas.device
+        device = next(self.model.parameters()).device
 
         batch_size = shape[0]
         # Start from pure noise N(0, I)
@@ -103,7 +103,7 @@ class LatentFlowMatching(nn.Module):
 
     @torch.no_grad()
     def conditional_sample(self, cond, returns=None, horizon=None, *args, **kwargs):
-        device = self.betas.device
+        device = next(self.model.parameters()).device
         batch_size = len(cond[0])
         horizon = horizon or self.horizon
         shape = (batch_size, horizon, self.transition_dim)
