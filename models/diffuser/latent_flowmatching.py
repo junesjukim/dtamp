@@ -117,9 +117,9 @@ class LatentFlowMatching(nn.Module):
             noise = torch.randn_like(x_start)
         
         # Correctly handle device placement for t_normalized
-        t_normalized = (t / self.n_timesteps).view(-1, 1, 1).to(x_start.device)
+        t_normalized = (t.float() / self.n_timesteps).view(-1, 1, 1).to(x_start.device)
 
-        # Conditional Flow Matching: x_t = (1 - (1 - theta_min) * t) * x_0 + t * x_1
+        # Conditional Flow Matching: x_t = (1 - (1 - self.theta_min) * t) * x_0 + t * x_1
         # Here, x_0 is noise and x_1 is the data (x_start)
         sample = (1 - (1 - self.theta_min) * t_normalized) * noise + t_normalized * x_start
         return sample
