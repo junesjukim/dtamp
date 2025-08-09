@@ -146,7 +146,7 @@ class LatentFlowMatching(nn.Module):
             model_output = apply_conditioning(model_output, cond)
             target = apply_conditioning(target, cond)
         else:
-             for k in cond.keys():
+            for k in cond.keys():
                 model_output[:, k, :] = 0
                 target[:,k,:] = 0
 
