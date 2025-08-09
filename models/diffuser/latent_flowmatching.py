@@ -61,8 +61,6 @@ class LatentFlowMatching(nn.Module):
         else:
             model_output = self.model(x, cond, t_model, returns)
 
-        model_output = apply_conditioning(model_output, cond)
-        
         if self.prediction_type == "x_start":
             t_normalized = t.float() / self.n_sample_timesteps
             t_normalized = t_normalized.view(-1, 1, 1).to(x.device)
@@ -76,7 +74,6 @@ class LatentFlowMatching(nn.Module):
         if self.clip_denoised:
             x_less_noisy.clamp_(-1., 1.)
 
-        x_less_noisy = apply_conditioning(x_less_noisy, cond)
         return x_less_noisy
 
     @torch.no_grad()
@@ -84,7 +81,10 @@ class LatentFlowMatching(nn.Module):
         # In flow matching, the sampling step is deterministic given the model's output.
         # We directly use the calculated mean as the next state.
         model_mean = self.p_mean_variance(x=x, cond=cond, t=t, returns=returns)
-        return model_mean
+        
+        # Apply conditioning to the updated state
+        x_out = apply_conditioning(model_mean, cond)
+        return x_out
 
     @torch.no_grad()
     def p_sample_loop(self, shape, cond, returns=None, return_diffusion=False):
@@ -101,7 +101,6 @@ class LatentFlowMatching(nn.Module):
         for i in range(0, self.n_sample_timesteps):
             timesteps = torch.full((batch_size,), i, device=device, dtype=torch.long)
             x = self.p_sample(x, cond, timesteps, returns)
-            x = apply_conditioning(x, cond)
 
             if return_diffusion: diffusion.append(x)
 
