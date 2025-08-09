@@ -1,5 +1,9 @@
 import os
+os.environ["WANDB_API_KEY"] = "b74af3d766f03aebd400095eec299dd945771d2b"
+
+import os
 import shutil
+import wandb
 
 import yaml
 
@@ -26,7 +30,7 @@ def train():
 
     os.environ['CUDA_VISIBLE_DEVICES'] = '%d' % args.gpu
 
-    exp_name = f'dtamp_{args.env}'
+    exp_name = f'dtamp_{args.env}_diffusion_step_20'
     checkpoint_dir = os.path.join('checkpoints', exp_name)
     os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -39,6 +43,12 @@ def train():
 
     domain = args.env.split('-')[0]
     config = yaml.load(open(f'config/d4rl/{domain}.yml'), Loader=yaml.FullLoader)
+    
+    wandb.init(
+        project='dtamp-d4rl',
+        name=exp_name,
+        config={**vars(args), **config}
+    )
 
     env = gym.make(args.env)
     if domain == 'antmaze':
@@ -73,7 +83,8 @@ def train():
         diffuser_timesteps=config['diffuser_timesteps'],
         returns_condition=config['returns_condition'],
         condition_guidance_w=config['condition_guidance_w'],
-        hidden_size=config['hidden_size']
+        hidden_size=config['hidden_size'],
+        model_type=config.get('model_type', 'diffusion') # 'diffusion' is default
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
 
@@ -91,9 +102,11 @@ def train():
             clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
-            tag = 'dtamp/bc' if n_updates < config['warmup_updates'] else 'dtamp/rl'
+            log_dict = {'step': n_updates}
+            tag = 'train' if n_updates < config['warmup_updates'] else 'finetune'
             for key, val in logs.items():
-                writer.add_scalar(f'{tag}/{key}', val, n_updates)
+                log_dict[f'{tag}/{key}'] = val
+            wandb.log(log_dict)
 
             pbar.update(1)
             n_updates += 1

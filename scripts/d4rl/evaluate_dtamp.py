@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import wandb
 
 from models.dtamp import DTAMP
 
@@ -30,6 +31,7 @@ def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False):
                 milestones = milestones[1:]
                 timestep = 0
             obs, rew, done, _ = env.step(act)
+            #print("time :", timestep, " | rew :", rew)
             if render:
                 env.render(mode='human')
             ep_return += rew
@@ -44,14 +46,24 @@ if __name__ == '__main__':
     import argparse
     import os
 
+    os.environ["WANDB_API_KEY"] = "b74af3d766f03aebd400095eec299dd945771d2b"
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--env', type=str, default='antmaze-medium-play-v2')
     parser.add_argument('--eval_episodes', type=int, default=50)
     parser.add_argument('--checkpoint_dir', type=str, default=None)
     parser.add_argument('--checkpoint_epoch', type=int, default=None)
+    parser.add_argument('--config_path', type=str, default=None)
+    parser.add_argument('--override_config', type=str, default=None)
     parser.add_argument('--render', action='store_true', dest='render', default=False)
     args = parser.parse_args()
+
+    wandb.init(
+        project="dtamp-evaluation",
+        name=f"eval-{args.env}-{args.checkpoint_epoch or 'latest'}",
+        config=vars(args)
+    )
 
     os.environ['CUDA_VISIBLE_DEVICES'] = '%d' % args.gpu
 
@@ -60,10 +72,22 @@ if __name__ == '__main__':
     else:
         checkpoint_dir = os.path.join('checkpoints', f'dtamp_{args.env}')
 
-    domain = args.env.split('-')[0]
-    config = yaml.load(open(f'config/d4rl/{domain}.yml'), Loader=yaml.FullLoader)
+    if args.config_path:
+        config = yaml.load(open(args.config_path), Loader=yaml.FullLoader)
+    else:
+        domain = args.env.split('-')[0]
+        config = yaml.load(open(f'config/d4rl/{domain}.yml'), Loader=yaml.FullLoader)
+    
+    if args.override_config:
+        key, value = args.override_config.split('=')
+        try:
+            value = eval(value)
+        except (NameError, SyntaxError):
+            pass
+        config[key] = value
 
     env = gym.make(args.env)
+    domain = args.env.split('-')[0]
     if domain == 'antmaze':
         from envs.d4rl_envs import AntmazeEnvWrapper as EnvWrapper
     elif domain == 'kitchen':
@@ -90,6 +114,7 @@ if __name__ == '__main__':
         diffuser_coeff=config['diffuser_coeff'],
         predict_epsilon=config['predict_epsilon'],
         diffuser_timesteps=config['diffuser_timesteps'],
+        sample_timesteps=config.get('sample_timesteps', config['diffuser_timesteps']), # Add this line
         returns_condition=config['returns_condition'],
         condition_guidance_w=config['condition_guidance_w'],
         hidden_size=config['hidden_size']
@@ -98,9 +123,16 @@ if __name__ == '__main__':
         checkpoint = torch.load(os.path.join(checkpoint_dir, 'checkpoint_%d.pt' % args.checkpoint_epoch))
     else:
         checkpoint = torch.load(os.path.join(checkpoint_dir, 'checkpoint.pt'))
-    model.load_state_dict(checkpoint['model'])
+        state_dict = checkpoint['model']
+    # remove diffuser sample parameter names from state_dict
+    for k in list(state_dict.keys()):
+        if 'sample_' in k:
+            del state_dict[k]
+    model.load_state_dict(state_dict, strict=False)
     model.eval()
 
     avg_return = evaluate(env, model, args.eval_episodes,
                           config['threshold'], config['time_limit'], args.render)
     print(avg_return)
+    wandb.log({'evaluation/avg_return': avg_return})
+    wandb.finish()
