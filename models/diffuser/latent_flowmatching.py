@@ -117,7 +117,7 @@ class LatentFlowMatching(nn.Module):
         batch_size = len(cond[0])
         horizon = horizon or self.horizon
         shape = (batch_size, horizon, self.transition_dim)
-        print(f"sample_timesteps: {self.n_sample_timesteps}")
+        #print(f"sample_timesteps: {self.n_sample_timesteps}")
 
         return self.p_sample_loop(shape, cond, returns, *args, **kwargs)
 
