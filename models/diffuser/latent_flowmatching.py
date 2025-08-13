@@ -117,6 +117,7 @@ class LatentFlowMatching(nn.Module):
         batch_size = len(cond[0])
         horizon = horizon or self.horizon
         shape = (batch_size, horizon, self.transition_dim)
+        print(f"sample_timesteps: {self.n_sample_timesteps}")
 
         return self.p_sample_loop(shape, cond, returns, *args, **kwargs)
 
@@ -138,7 +139,10 @@ class LatentFlowMatching(nn.Module):
         noise = torch.randn_like(x_start)
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_noisy = apply_conditioning(x_noisy, cond)
+        
+        # x_start 예측이 velocity 예측보다 좋은 이유로 보아 조건 추가 #TODO flowmatching velocity test
+        if self.prediction_type == "x_start":
+            x_noisy = apply_conditioning(x_noisy, cond)
 
         model_output = self.model(x_noisy, cond, t, returns)
 
