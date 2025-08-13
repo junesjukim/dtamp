@@ -117,13 +117,14 @@ if __name__ == '__main__':
         sample_timesteps=config.get('sample_timesteps', config['diffuser_timesteps']), # Add this line
         returns_condition=config['returns_condition'],
         condition_guidance_w=config['condition_guidance_w'],
-        hidden_size=config['hidden_size']
+        hidden_size=config['hidden_size'],
+        model_type=config.get('model_type', 'diffusion')
     ).to(device)
     if args.checkpoint_epoch:
         checkpoint = torch.load(os.path.join(checkpoint_dir, 'checkpoint_%d.pt' % args.checkpoint_epoch))
     else:
         checkpoint = torch.load(os.path.join(checkpoint_dir, 'checkpoint.pt'))
-        state_dict = checkpoint['model']
+    state_dict = checkpoint['model']
     # remove diffuser sample parameter names from state_dict
     for k in list(state_dict.keys()):
         if 'sample_' in k:

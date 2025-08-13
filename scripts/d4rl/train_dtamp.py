@@ -25,9 +25,14 @@ def train():
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', type=str, default='antmaze-medium-play-v2')
     parser.add_argument('--epochs_per_save', type=int, default=50)
+    # Experiment naming controls
+    parser.add_argument('--exp-name', type=str, default=None, help='Full experiment name to use; overrides prefix/suffix and defaults')
     args = parser.parse_args()
 
-    exp_name = f'dtamp_{args.env}_diffusion_step_20'
+    # Compose experiment name
+    default_exp_name = f'dtamp_{args.env}_flowmatching'
+    if args.exp_name is not None and len(args.exp_name) > 0:
+        exp_name = args.exp_name
     checkpoint_dir = os.path.join('checkpoints', exp_name)
     os.makedirs(checkpoint_dir, exist_ok=True)
 

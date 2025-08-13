@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.nn.functional import binary_cross_entropy_with_logits as bce_loss
 
 from networks import Actor, Critics, Decoder
-from models.diffuser import LatentDiffusion, LatentFlowMatching, TemporalUnet
+from models.diffuser import LatentDiffusion, LatentFlowMatching, TemporalUnet, LatentInductiveMomentMatching
 
 from copy import deepcopy
 
@@ -42,6 +42,7 @@ class DTAMP(nn.Module):
             sample_timesteps = diffuser_timesteps
         
         if model_type == 'diffusion':
+            print(f"Using Diffusion")
             self.diffuser = LatentDiffusion(
                 model=TemporalUnet(horizon, goal_dim, returns_condition=returns_condition),
                 horizon=horizon,
@@ -53,6 +54,7 @@ class DTAMP(nn.Module):
                 condition_guidance_w=condition_guidance_w
             )
         elif model_type == 'flowmatching':
+            print(f"Using FlowMatching")
             self.diffuser = LatentFlowMatching(
                 model=TemporalUnet(horizon, goal_dim, returns_condition=returns_condition),
                 horizon=horizon,
@@ -63,6 +65,18 @@ class DTAMP(nn.Module):
                 returns_condition=returns_condition,
                 condition_guidance_w=condition_guidance_w
             )   
+        elif model_type in ['imm', 'inductivemomentmatching']:
+            print(f"Using InductiveMomentMatching")
+            self.diffuser = LatentInductiveMomentMatching(
+                model=TemporalUnet(horizon, goal_dim, returns_condition=returns_condition),
+                horizon=horizon,
+                latent_dim=goal_dim,
+                n_timesteps=diffuser_timesteps,
+                n_sample_timesteps=sample_timesteps,
+                predict_epsilon=predict_epsilon,
+                returns_condition=returns_condition,
+                condition_guidance_w=condition_guidance_w
+            )
         if visual_perception:
             self.decoder = Decoder(goal_dim)
 
