@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.nn.functional import binary_cross_entropy_with_logits as bce_loss
 
 from networks import Actor, Critics, Decoder
-from models.diffuser import LatentDiffusion, LatentFlowMatching, TemporalUnet, LatentInductiveMomentMatching
+from models.diffuser import LatentDiffusion, LatentFlowMatching, TemporalUnet, TemporalUnetTimeAdd, LatentInductiveMomentMatching, LatentMeanFlow
 
 from copy import deepcopy
 
@@ -74,6 +74,15 @@ class DTAMP(nn.Module):
                 n_timesteps=diffuser_timesteps,
                 n_sample_timesteps=sample_timesteps,
                 predict_epsilon=predict_epsilon,
+                returns_condition=returns_condition,
+                condition_guidance_w=condition_guidance_w
+            )
+        elif model_type in ['meanflow']:
+            print(f"Using MeanFlow")
+            self.diffuser = LatentMeanFlow(
+                model=TemporalUnetTimeAdd(horizon, goal_dim, returns_condition=returns_condition),
+                horizon=horizon,
+                latent_dim=goal_dim,
                 returns_condition=returns_condition,
                 condition_guidance_w=condition_guidance_w
             )
@@ -178,6 +187,8 @@ class DTAMP(nn.Module):
             target_returns = torch.as_tensor(target_returns, dtype=torch.float32, device=device).view(1, 1)
         else:
             target_returns=None
+        if obs.dim() > goal.dim():
+            obs = obs.squeeze(0)
         obs_goal = torch.stack([obs, goal], dim=0)
         g_actor, _ = self.actor.encode(obs_goal, eval=True)
         g_critic, _ = self.critic.encode(obs_goal, eval=True)
@@ -192,7 +203,7 @@ class DTAMP(nn.Module):
 
 
     @torch.no_grad()
-    def get_action(self, obs, milestones, threshold=0.1, device=torch.device('cuda')):
+    def get_action(self, obs, goal, milestones, threshold=0.1, device=torch.device('cuda')):
         obs = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
         g = torch.as_tensor(milestones, dtype=torch.float32, device=device)
         
@@ -202,6 +213,13 @@ class DTAMP(nn.Module):
         if len(reached_idx) > 0:
             g = g[reached_idx[-1]:] #TODO ADD REPLANNING HERE
 
+        #Replanning TRY 1
+        #if len(g) < 2:
+        #    print(f"Replanning", flush=True)
+        #    milestones = self.planning(obs, goal, target_returns=None)
+        #    g = torch.as_tensor(milestones, dtype=torch.float32, device=device)
+        
+        
         act = self.actor(obs, g[:1, :self.goal_dim // 2])
         return act.squeeze().cpu().detach().numpy(), g
 

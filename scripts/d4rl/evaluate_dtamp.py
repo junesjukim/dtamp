@@ -22,12 +22,14 @@ def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False):
         timestep = 0
         len_milestones = len(milestones)
         while not done:
-            act, milestones = model.get_action(obs, milestones, threshold=threshold)
+            act, milestones = model.get_action(obs, goal, milestones, threshold=threshold)
             timestep += 1
             if len_milestones != len(milestones):
                 len_milestones = len(milestones)
                 timestep = 0
             if timestep > time_limit and len(milestones) > 1:
+                #Replanning TRY 2
+                #milestones = model.planning(obs, goal, target_returns=None)
                 milestones = milestones[1:]
                 timestep = 0
             obs, rew, done, _ = env.step(act)
