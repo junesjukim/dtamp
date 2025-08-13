@@ -102,6 +102,7 @@ class LatentFlowMatching(nn.Module):
         for i in range(0, self.n_sample_timesteps):
             timesteps = torch.full((batch_size,), i, device=device, dtype=torch.long)
             x = self.p_sample(x, cond, timesteps, returns)
+            x = apply_conditioning(x, cond)
 
             if return_diffusion: diffusion.append(x)
 
