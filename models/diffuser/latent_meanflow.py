@@ -32,7 +32,8 @@ def apply_conditioning(x, cond):
 
 class LatentMeanFlow(nn.Module):
     def __init__(self, model, horizon, latent_dim, n_timesteps=1000, n_sample_timesteps=1,
-        loss_type='l2', clip_denoised=False, predict_epsilon=True, returns_condition=False, condition_guidance_w=0.1):
+        loss_type='l2', clip_denoised=False, predict_epsilon=True, returns_condition=False, condition_guidance_w=0.1,
+        norm_p=0.75, norm_eps=1e-3):
         super().__init__()
         self.horizon = horizon
         self.transition_dim = latent_dim
@@ -46,6 +47,10 @@ class LatentMeanFlow(nn.Module):
 
         # Flow bridge parameter used in q_sample (matches LatentFlowMatching)
         self.theta_min = 1e-3
+        
+        # Adaptive weighting parameters
+        self.norm_p = norm_p
+        self.norm_eps = norm_eps
 
         if loss_type == 'l1':
             self.loss_fn = lambda x, y: (x - y).abs()
@@ -139,7 +144,8 @@ class LatentMeanFlow(nn.Module):
         t_reshaped = t.view(-1, 1, 1).to(x_start.device)
 
         # Conditional Flow Matching: z_t = (1 - (1 - theta_min) * t) * z0 + t * z1
-        sample = (1 - (1 - self.theta_min) * t_reshaped) * noise + t_reshaped * x_start
+        # Here, z0 is data (x_start) and z1 is noise
+        sample = (1 - (1 - self.theta_min) * t_reshaped) * x_start + t_reshaped * noise
         return sample
 
 
@@ -151,23 +157,21 @@ class LatentMeanFlow(nn.Module):
         x_noisy = apply_conditioning(x_noisy, cond)
 
         # derivative of z(t) wrt normalized time
-        v_t = x_start - (1 - self.theta_min) * noise
-
-        # continuous times and interval
-        h_cont = t_cont - r_cont
-
+        v_t = noise - (1 - self.theta_min) * x_start
+        for k in cond.keys():
+            v_t[:, k, :] = 0
+        
         # Define fn(z, r, t) for a single JVP over (v, 0, 1)
-        def fn_all(z, r, t):
-            return self.model(z, cond, t, t - r, returns)
-
+        def fn_all(z, t, r):
+            h = t - r
+            return self.model(z, cond, t, h, returns)
         # Single JVP to get (u, dudt = v·∂_z u + ∂_t u)
         u_pred, dudt = torch.autograd.functional.jvp(
             fn_all,
-            (x_noisy, r_cont, t_cont),
-            (v_t.detach(), torch.zeros_like(r_cont), torch.ones_like(t_cont)),
+            (x_noisy, t_cont, r_cont),
+            (v_t.detach(), torch.ones_like(t_cont), torch.zeros_like(r_cont)),
             create_graph=True,
         )
-
         # 6) MeanFlow target with general (t, r)
         delta_tr = (t_cont - r_cont).view(-1, 1, 1)
         u_tgt = v_t - delta_tr * dudt
@@ -179,7 +183,15 @@ class LatentMeanFlow(nn.Module):
             u_for_loss[:, k, :] = 0
             u_tgt_for_loss[:, k, :] = 0
 
-        loss = self.loss_fn(u_for_loss, u_tgt_for_loss).mean()
+        # Adaptive weighted loss instead of simple mean
+        loss = (u_for_loss - u_tgt_for_loss) ** 2
+        loss = loss.sum(dim=(1, 2))  # sum over horizon and latent dimensions, keep batch dim
+        
+        # adaptive weighting
+        adp_wt = (loss.detach() + self.norm_eps) ** self.norm_p
+        loss = loss / adp_wt
+        
+        loss = loss.mean()  # mean over batch dimension
         return loss
 
     def loss(self, x, cond, returns=None):
