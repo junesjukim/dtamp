@@ -1,0 +1,24 @@
+horizon: 64
+batch_size: 256
+max_interval: 20
+
+n_critics: 1
+rl_coeff: 1.0
+kl_coeff: 0.0
+decoder_coeff: 1.0
+diffuser_coeff: 1.0
+predict_epsilon: true
+diffuser_timesteps: 20
+returns_condition: true
+condition_guidance_w: 1.0
+hidden_size: 1024
+learning_rate: 3.0e-4
+updates_per_epoch: 1000
+epochs: 200
+warmup_updates: 20000
+
+threshold: 0.0
+time_limit: 16
+
+# goal_dim: optional; defaults to observation dim
+
