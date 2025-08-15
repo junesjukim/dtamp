@@ -18,7 +18,7 @@ def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False):
         obs, goal = env.reset()
         done = False
         ep_return = 0
-        milestones = model.planning(obs, goal, target_returns=None)
+        milestones = model.planning(obs, goal, target_returns=None, num_samples=10)
         timestep = 0
         len_milestones = len(milestones)
         while not done:
@@ -29,8 +29,8 @@ def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False):
                 timestep = 0
             if timestep > time_limit and len(milestones) > 1:
                 #Replanning TRY 2
-                #milestones = model.planning(obs, goal, target_returns=None)
-                milestones = milestones[1:]
+                milestones = model.planning(obs, goal, target_returns=None, num_samples=5)
+                #milestones = milestones[1:]
                 timestep = 0
             obs, rew, done, _ = env.step(act)
             #print("time :", timestep, " | rew :", rew)

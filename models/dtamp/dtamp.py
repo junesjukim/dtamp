@@ -180,7 +180,7 @@ class DTAMP(nn.Module):
         return neg_goals
 
     @torch.no_grad()
-    def planning(self, obs, goal, target_returns=None, device=torch.device('cuda')):
+    def planning(self, obs, goal, target_returns=None, device=torch.device('cuda'), num_samples=1):
         obs = torch.as_tensor(obs, dtype=torch.float32, device=device)
         goal = torch.as_tensor(goal, dtype=torch.float32, device=device)
         if target_returns is not None and self.returns_condition:
@@ -189,17 +189,38 @@ class DTAMP(nn.Module):
             target_returns=None
         if obs.dim() > goal.dim():
             obs = obs.squeeze(0)
+
         obs_goal = torch.stack([obs, goal], dim=0)
         g_actor, _ = self.actor.encode(obs_goal, eval=True)
         g_critic, _ = self.critic.encode(obs_goal, eval=True)
         g = torch.cat([g_actor, g_critic], dim=-1)
         cond = {0: g[:1, :], -1: g[1:, :]}
-        g_pred = self.diffuser(cond, returns=target_returns)
+
+        if num_samples == 1:
+            g_pred = self.diffuser(cond, returns=target_returns).squeeze(0)
+        else:
+            # 1. Generate multiple candidate plans
+            candidate_plans = torch.cat([self.diffuser(cond, returns=target_returns) for _ in range(num_samples)], dim=0)
+            
+            # 2. Evaluate each plan with the critic
+            obs_repeat = obs.unsqueeze(0).repeat(num_samples, 1)
+            
+            first_milestones = candidate_plans[:, 1, :]
+            first_milestones_actor, first_milestones_critic = torch.split(first_milestones, self.goal_dim // 2, dim=-1)
+            
+            actions = self.actor(obs_repeat, first_milestones_actor)
+            q_values = self.critic.min_q(obs_repeat, actions, first_milestones_critic)
+            
+            # 3. Select the best plan
+            best_plan_idx = torch.argmax(q_values)
+            g_pred = candidate_plans[best_plan_idx]
+
         g_pred_actor, g_pred_critic = torch.split(g_pred, self.goal_dim // 2, dim=-1)
         g_pred_actor = F.normalize(g_pred_actor, p=2.0, dim=-1)
         g_pred_critic = F.normalize(g_pred_critic, p=2.0, dim=-1)
         milestones = torch.cat([g_pred_actor, g_pred_critic], dim=-1)
-        return milestones[:, 1:, :].squeeze()
+        
+        return milestones[1:, :]
 
 
     @torch.no_grad()
@@ -213,11 +234,11 @@ class DTAMP(nn.Module):
         if len(reached_idx) > 0:
             g = g[reached_idx[-1]:] #TODO ADD REPLANNING HERE
 
-        #Replanning TRY 1
-        #if len(g) < 2:
-        #    print(f"Replanning", flush=True)
-        #    milestones = self.planning(obs, goal, target_returns=None)
-        #    g = torch.as_tensor(milestones, dtype=torch.float32, device=device)
+        # Critic-Guided Replanning
+        if len(g) < 4:
+            #print(f"Replanning with Critic-Guidance (k=10)", flush=True)
+            milestones = self.planning(obs, goal, target_returns=None, num_samples=30)
+            g = torch.as_tensor(milestones, dtype=torch.float32, device=device)
         
         
         act = self.actor(obs, g[:1, :self.goal_dim // 2])
