@@ -61,7 +61,7 @@ class LatentMeanFlow(nn.Module):
         # so we only need a single evaluation.
         batch_size = x.shape[0]
         device = x.device
-        u = self.model(x, cond, t_float, r_float, returns)
+        u = self.model(x, cond, t_float, t_float - r_float, returns)
 
         # MeanFlow update rule: z_r = z_t - (t-r) u(z_t, r, t)
         time_step_size = t_float - r_float
@@ -112,22 +112,24 @@ class LatentMeanFlow(nn.Module):
 
     def sample_t_r(self, batch_size: int, device: torch.device):
         """
-        Sample continuous t, r in [0,1] with t >= r. A portion has r == t,
-        which recovers standard Flow Matching on those samples.
+        Sample continuous t, r in [0,1] with t >= r using the v1 mechanism:
+        independently sample t and r, with post-processing.
         """
-        t_rand = torch.rand(batch_size, device=device)
-        r_rand = torch.rand(batch_size, device=device)
-        t_cont = torch.maximum(t_rand, r_rand)
-        r_cont = torch.minimum(t_rand, r_rand)
+        # step 1: sample two independent timesteps
+        t = torch.rand(batch_size, device=device)
+        r = torch.rand(batch_size, device=device)
 
-        # enforce r == t for a fraction of the batch
-        r_equal_t_ratio = 0.25
-        num_equal = int(r_equal_t_ratio * batch_size)
-        if num_equal > 0:
-            idx = torch.randperm(batch_size, device=device)[:num_equal]
-            r_cont[idx] = t_cont[idx]
+        # step 2: make t and r different with a probability of (1 - ratio)
+        # ratio controls how often r == t (similar to r_equal_t_ratio)
+        ratio = 0.25  # fraction where r == t
+        prob = torch.rand(batch_size, device=device)
+        mask = prob < 1 - ratio
+        r = torch.where(mask, t, r)
 
-        return t_cont, r_cont
+        # step 3: ensure t >= r
+        r = torch.minimum(t, r)
+
+        return t, r
 
     def q_sample(self, x_start, t, noise=None):
         if noise is None:
