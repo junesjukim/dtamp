@@ -1,4 +1,8 @@
 import os
+os.environ["WANDB_API_KEY"] = "b74af3d766f03aebd400095eec299dd945771d2b"
+
+
+import os
 import yaml
 import argparse
 import numpy as np
@@ -14,6 +18,7 @@ from envs.ogbench_envs import OGBenchEnvWrapper
 
 def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False, task_id=None):
     ep_returns = []
+    successes = []
     pbar = tqdm(total=eval_episodes, desc='Evaluation')
     for _ in range(eval_episodes):
         options = {'render_goal': render}
@@ -29,22 +34,29 @@ def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False, 
         len_milestones = len(milestones)
         while not done:
             act, milestones = model.get_action(obs, goal, milestones, threshold=threshold)
+            # clip action for safety
+            act = np.clip(act, env.action_space.low, env.action_space.high)
             timestep += 1
             if len_milestones != len(milestones):
                 len_milestones = len(milestones)
                 timestep = 0
             if timestep > time_limit and len(milestones) > 1:
-                milestones = model.planning(obs, goal, target_returns=None, num_samples=5)
+                #milestones = model.planning(obs, goal, target_returns=None, num_samples=5)
+                milestones = milestones[1:]
                 timestep = 0
-            obs, rew, done, _ = env.step(act)
+            obs, rew, done, info = env.step(act)
             if render:
                 env.render()
             ep_return += rew
+        
         ep_returns.append(ep_return)
+        successes.append(float(info.get('success', 0)))
         pbar.set_description(f'Evaluation - Avg return: {np.mean(ep_returns):.3f}')
         pbar.update(1)
     pbar.close()
-    return np.mean(ep_returns)
+    avg_return = float(np.mean(ep_returns))
+    success_rate = float(np.mean(successes) * 100.0)
+    return avg_return, success_rate
 
 
 def main():
@@ -116,9 +128,9 @@ def main():
     model.load_state_dict(state_dict, strict=False)
     model.eval()
 
-    avg_return = evaluate(env, model, args.eval_episodes, config['threshold'], config['time_limit'], args.render, args.task_id)
-    print(avg_return)
-    wandb.log({'evaluation/avg_return': avg_return})
+    avg_return, success_rate = evaluate(env, model, args.eval_episodes, config['threshold'], config['time_limit'], args.render, args.task_id)
+    print({'avg_return': avg_return, 'success_rate': success_rate})
+    wandb.log({'evaluation/avg_return': avg_return, 'evaluation/success_rate': success_rate})
     wandb.finish()
 
 

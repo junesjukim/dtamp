@@ -1,4 +1,8 @@
 import os
+os.environ["WANDB_API_KEY"] = "b74af3d766f03aebd400095eec299dd945771d2b"
+
+
+import os
 import shutil
 import yaml
 import argparse
