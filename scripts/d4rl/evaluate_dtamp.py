@@ -11,14 +11,15 @@ import yaml
 from tqdm import tqdm
 
 
-def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False):
+def evaluate(env, model, eval_episodes, returns_condition, max_interval, threshold, time_limit=16, render=False):
     ep_returns = []
     pbar = tqdm(total=eval_episodes, desc=f'Evaluation')
     for _ in range(eval_episodes):
         obs, goal = env.reset()
         done = False
         ep_return = 0
-        milestones = model.planning(obs, goal, target_returns=None, num_samples=10)
+        target_returns = 0.5 * max_interval if returns_condition else None
+        milestones = model.planning(obs, goal, target_returns=target_returns, num_samples=10)
         timestep = 0
         len_milestones = len(milestones)
         while not done:
@@ -29,8 +30,8 @@ def evaluate(env, model, eval_episodes, threshold, time_limit=16, render=False):
                 timestep = 0
             if timestep > time_limit and len(milestones) > 1:
                 #Replanning TRY 2
-                milestones = model.planning(obs, goal, target_returns=None, num_samples=5)
-                #milestones = milestones[1:]
+                #milestones = model.planning(obs, goal, target_returns=target_returns, num_samples=5)
+                milestones = milestones[1:]
                 timestep = 0
             obs, rew, done, _ = env.step(act)
             #print("time :", timestep, " | rew :", rew)
@@ -134,7 +135,7 @@ if __name__ == '__main__':
     model.load_state_dict(state_dict, strict=False)
     model.eval()
 
-    avg_return = evaluate(env, model, args.eval_episodes,
+    avg_return = evaluate(env, model, args.eval_episodes, config['returns_condition'], config['max_interval'],
                           config['threshold'], config['time_limit'], args.render)
     print(avg_return)
     wandb.log({'evaluation/avg_return': avg_return})
